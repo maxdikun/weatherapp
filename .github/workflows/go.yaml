@@ -62,7 +62,7 @@ jobs:
     - name: Lint (Optional, but recommended)
       uses: golangci/golangci-lint-action@v6
       with:
-        version: v1.59.1 
+        version: latest 
         args: --timeout=5m
 
   build-image:
