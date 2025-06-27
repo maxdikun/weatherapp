@@ -1,0 +1,102 @@
+openapi: 3.0.0
+info:
+  title: WeatherApp
+  description: API of Weather app
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080/v1
+    description: Local development server
+
+tags:
+  - name: authentication
+    description: User authentication and session management
+  - name: users
+    description: Operations related to users
+  - name: weather
+    description: Weather data retrieval
+
+paths:
+  /auth/register:
+    post:
+      operationId: Register
+      summary: Register a new user account
+      tags:
+        - authentication
+        - users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Credentials"
+      responses:
+        '200':
+          description: Registration is successfull.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        '400':
+          description: Provided data was invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        '409':
+          description: User with provided login already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        '500':
+          description: Provided data was invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  schemas:
+    Credentials:
+      type: object
+      properties:
+        login:
+          type: string
+        password:
+          type: string
+          format: password
+      required:
+        - login
+        - password
+    TokenPair:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          format: jwt
+        refreshToken:
+          type: string
+        refreshTokenExpiresAt:
+          type: string
+          format: date-time
+      required:
+        - accessToken
+        - refreshToken
+        - refreshTokenExpiresAt
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        message:
+          type: string
+        details:
+          type: object
+      required:
+        - code
+        - timestamp
+        - message
