@@ -1,0 +1,28 @@
+version: '3'
+
+dotenv: [.env]
+
+tasks:
+  run:
+    desc: Run the app
+    deps: [gen]
+    cmd: go run .
+  lint:
+    desc: Run linters
+    cmd: golangci-lint run
+  test:
+    desc: Run tests
+    deps: [gen]
+    cmd: go test -v ./... -race -coverprofile=coverage.out -covermode=atomic
+  gen:
+    desc: Run all code-gen tools.
+    cmd: go generate ./...
+    silent: true
+
+
+  up:
+    desc: Start dev environment with docker
+    cmd: docker-compose up --detach
+  down:
+    desc: Stop dev environment with docker
+    cmd: docker-compose down

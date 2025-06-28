@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/maxdikun/weatherapp/internal/handlers/gen"
@@ -30,4 +31,15 @@ func (api *ApiHandler) Register(ctx context.Context, request gen.RegisterRequest
 		RefreshToken:          res.Refresh,
 		RefreshTokenExpiresAt: res.RefreshExpiresAt,
 	}, nil
+}
+
+func SetupHandlers(userSvc *services.UserService) http.Handler {
+	apiH := &ApiHandler{userSvc: userSvc}
+
+	api := gen.NewStrictHandler(apiH, nil)
+
+	mux := http.NewServeMux()
+	gen.HandlerFromMux(api, mux)
+
+	return mux
 }
