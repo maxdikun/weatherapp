@@ -125,25 +125,6 @@ func (svc *UserService) createUser(ctx context.Context, login string, password s
 	return user, nil
 }
 
-func (svc *UserService) createTokenPair(session models.Session) (TokenPair, error) {
-	expiresAt := time.Now().Add(svc.accessTokenDuration)
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"exp":  expiresAt,
-		"user": session.User,
-	})
-	tokenString, err := token.SignedString(svc.tokenSecret)
-	if err != nil {
-		return TokenPair{}, ErrInternal
-	}
-
-	return TokenPair{
-		Access:           tokenString,
-		AccessExpiresAt:  expiresAt,
-		Refresh:          session.Token,
-		RefreshExpiresAt: session.ExpiresAt,
-	}, nil
-}
-
 func (svc *UserService) generateSessionTokens(ctx context.Context, user models.User) (TokenPair, error) {
 	session := models.Session{
 		Id:          uuid.New(),

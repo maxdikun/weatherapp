@@ -54,7 +54,12 @@ func main() {
 		logger.Error("Failed to connect the redis", "err", err)
 		return
 	}
-	defer redisClient.Close()
+	defer func(redisClient *redis.Client) {
+		err := redisClient.Close()
+		if err != nil {
+			logger.Error("Failed to close the redis client", "err", err)
+		}
+	}(redisClient)
 
 	userRepository := postgres.NewUserRepository(postgresPool)
 	sessionRepository := redisRepo.NewSessionRepository(redisClient)
