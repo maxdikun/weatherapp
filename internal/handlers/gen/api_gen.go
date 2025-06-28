@@ -43,11 +43,17 @@ type TokenPair struct {
 	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt"`
 }
 
+// LoginJSONRequestBody defines body for Login for application/json ContentType.
+type LoginJSONRequestBody = Credentials
+
 // RegisterJSONRequestBody defines body for Register for application/json ContentType.
 type RegisterJSONRequestBody = Credentials
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+
+	// (POST /auth/login)
+	Login(w http.ResponseWriter, r *http.Request)
 	// Register a new user account
 	// (POST /auth/register)
 	Register(w http.ResponseWriter, r *http.Request)
@@ -61,6 +67,20 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// Login operation middleware
+func (siw *ServerInterfaceWrapper) Login(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Login(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // Register operation middleware
 func (siw *ServerInterfaceWrapper) Register(w http.ResponseWriter, r *http.Request) {
@@ -196,9 +216,45 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc("POST "+options.BaseURL+"/auth/login", wrapper.Login)
 	m.HandleFunc("POST "+options.BaseURL+"/auth/register", wrapper.Register)
 
 	return m
+}
+
+type LoginRequestObject struct {
+	Body *LoginJSONRequestBody
+}
+
+type LoginResponseObject interface {
+	VisitLoginResponse(w http.ResponseWriter) error
+}
+
+type Login200JSONResponse TokenPair
+
+func (response Login200JSONResponse) VisitLoginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type Login400JSONResponse Error
+
+func (response Login400JSONResponse) VisitLoginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type Login500JSONResponse Error
+
+func (response Login500JSONResponse) VisitLoginResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type RegisterRequestObject struct {
@@ -247,6 +303,9 @@ func (response Register500JSONResponse) VisitRegisterResponse(w http.ResponseWri
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+
+	// (POST /auth/login)
+	Login(ctx context.Context, request LoginRequestObject) (LoginResponseObject, error)
 	// Register a new user account
 	// (POST /auth/register)
 	Register(ctx context.Context, request RegisterRequestObject) (RegisterResponseObject, error)
@@ -279,6 +338,37 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// Login operation middleware
+func (sh *strictHandler) Login(w http.ResponseWriter, r *http.Request) {
+	var request LoginRequestObject
+
+	var body LoginJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.Login(ctx, request.(LoginRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Login")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LoginResponseObject); ok {
+		if err := validResponse.VisitLoginResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // Register operation middleware
@@ -315,17 +405,18 @@ func (sh *strictHandler) Register(w http.ResponseWriter, r *http.Request) {
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"H4sIAAAAAAAC/8RUTW/UMBD9K9bAMTRbPqSSW0E9VEKiQiAO1R6GeHbj4tjGM9ntqsp/R7a73wtIqIhb",
-	"PJ6P917m+QFa3wfvyAlD8wDcdtRj/nwfSZMTgzYfQ/SBohjKJ+vnxqUPWQWCBliicXMYKwjIvPRRp8uZ",
-	"jz0KNNtgdVgwVhDpx2AiaWhuH/vudJluKvy3O2oljbiK0cdjTK3XdBKSJkFTWBz16okZ56frxPTEgn3Y",
-	"46JR6EW6+iOZDGi3zXbcKVqf/XdyN2hOUMO2JeacsIflbinHKBKIWSTuNvm/Tbi6DyYSX8pfstzFdjD6",
-	"V4OO2aemxs18wqCJ22iCGO+ggcuba+Vn6iuhdBQVhpAlFZvKH6OXObigyKXm/GxyNkk8fSCHwUADr3Io",
-	"LZZ0WdIaB+nqSHPDQkVyz1mDJDym6dcaGvi0ziisieWd16uyb07I5RIMwZo2F9V37N3WSunreaQZNPCs",
-	"3nqtfjRaveuycV9aiQPlAAfvuCzCy8nkyUZv9y0P3pe90C46KMOKh/ybZ4O1Z0nZ108IpPj5BIib6BdG",
-	"k1YaBdUSWRm3QGt0QfD23yP4whTV0kinwhpLfqIU2kioV4ruDQsnPG/+syJjBTz0PcbVztYqVI6Wakg0",
-	"sG394PKDgXPO1h2kS8tXMEIFKY9hmgczxeQoaG4PLfnBt2iVpgVZH3pyokpuahAtNNCJhKaubcrrPEtz",
-	"MbmY1ItzGKeb4Q+nlN4HpNBpxcTJ1apHh3NK06ACh32y/wH+sTps+nFtZVaRLAppJV4Vlpsu5XhcvH5y",
-	"stSRJBpaoN3WLcs9jNPxZwAAAP//wbQUYEcHAAA=",
+	"H4sIAAAAAAAC/+RVXW/bOgz9K4Lufcyt07sO6PzWDX0oMGDFsGEPQx44i4nV2ZJG0kmDIv99oJzE+eoG",
+	"DN0HsDdLInnOoQ+lB1vFNsWAQdiWD5arGlvIn68IHQbx0ORlopiQxGNeNXHmg37IMqEtLQv5MLOrkU3A",
+	"vIjk9HAaqQWx5bA5OkxYjSzhl84TOlt+XNfdqTLZZsRPd1iJQlwTRTrmVEWHJyk5FPC9iqNaLTLD7HSe",
+	"+BZZoE17WhwI/qdH3xWTCe2WGeBOyXoXP2O4BX9CGlQVMueAPS53CzlmoSSmhFxv478ZcH2fPCFfyQ+q",
+	"3OV2AP0Y0LF6LerDNCoHh1yRT+JjsKW9ur0xcWo+IEiNZCCl3FJpNH29e5U350jc55yfjc/GqjMmDJC8",
+	"Le2zvKXGkjq3tIBO6mLr4xRZjsFf67HxQaKRGg1UVeyCtlx/DmjQjduE2b4tyPIyumVvyCAYcllIqfFV",
+	"zijuOIZh1vTrX8KpLe0/xTCMxXoSi90xXO33XqjDvMEpBu6d8v94/GTQgyEz8MnWsOEuG2DaNc2Z9vzi",
+	"CRn0k34C/Zbi3Dt0phraY4DQ+DCHxjsl8vxXELkJghSgMYw0RzK4DhxZgRnn+eikVoY9rp3oWW8+wpln",
+	"Qdr1376x3m4i/i5v9bL7Pvx+izkQMAvgXW9djF/8fAbvGcksvNQmbbjk+8pAQwhuafDes/Af4HXu2hZo",
+	"ueNYAybgwnQqYbg2H5mJkdU41tnQYrm6xh1fxxU0xuEcm5haDLJmogWosaWtRVJZFI3G1ZGlvBxfjov5",
+	"uV1NtuAPp7q8T8hAcIaR9TkxLQSYoaLZkQ3Q6rtzwH81Oiz6ZjPGbAgbEHRGoulVbqv0y+PkzVuXjUco",
+	"5HEOzZC36M/tarL6GgAA//8qc/rEwAkAAA==",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

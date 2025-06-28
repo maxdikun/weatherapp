@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"math/rand"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -33,9 +32,26 @@ type UserService struct {
 	tokenSecret         []byte
 }
 
+func NewUserService(
+	logger *slog.Logger,
+	userStorage repositories.UserRepository,
+	sessionStorage repositories.SessionRepository,
+	sessionDuration time.Duration,
+	accessTokenDuration time.Duration,
+	tokenSecret []byte,
+) *UserService {
+	return &UserService{
+		logger:              logger,
+		userStorage:         userStorage,
+		sessionStorage:      sessionStorage,
+		sessionDuration:     sessionDuration,
+		accessTokenDuration: accessTokenDuration,
+		tokenSecret:         tokenSecret,
+	}
+}
+
 func (svc *UserService) Register(ctx context.Context, login string, password string) (TokenPair, error) {
-	err := errors.Join(svc.validateLogin(login), svc.validatePassword(password))
-	if err != nil {
+	if err := errors.Join(svc.validateLogin(login), svc.validatePassword(password)); err != nil {
 		return TokenPair{}, err
 	}
 
@@ -44,27 +60,32 @@ func (svc *UserService) Register(ctx context.Context, login string, password str
 		return TokenPair{}, err
 	}
 
-	session, err := svc.createSession(ctx, user)
+	return svc.generateSessionTokens(ctx, user)
+}
+
+func (svc *UserService) Login(ctx context.Context, login string, password string) (TokenPair, error) {
+	if err := errors.Join(svc.validateLogin(login), svc.validatePassword(password)); err != nil {
+		return TokenPair{}, err
+	}
+
+	user, err := svc.findUser(ctx, login)
 	if err != nil {
 		return TokenPair{}, err
 	}
 
-	expiresAt := time.Now().Add(svc.accessTokenDuration)
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"exp":  expiresAt,
-		"user": session.User,
-	})
-	tokenString, err := token.SignedString(svc.tokenSecret)
-	if err != nil {
-		return TokenPair{}, ErrInternal
-	}
+	return svc.generateSessionTokens(ctx, user)
+}
 
-	return TokenPair{
-		Access:           tokenString,
-		AccessExpiresAt:  expiresAt,
-		Refresh:          session.Token,
-		RefreshExpiresAt: session.ExpiresAt,
-	}, nil
+func (svc *UserService) findUser(ctx context.Context, login string) (models.User, error) {
+	user, err := svc.userStorage.FindByLogin(ctx, login)
+	if err != nil {
+		var notFound *repositories.NotFoundError
+		if errors.As(err, &notFound) {
+			return models.User{}, ErrInvalidCredentials
+		}
+		return models.User{}, ErrInvalidCredentials
+	}
+	return user, nil
 }
 
 func (svc *UserService) validateLogin(login string) error {
@@ -94,14 +115,36 @@ func (svc *UserService) createUser(ctx context.Context, login string, password s
 	}
 
 	if err := svc.userStorage.Add(ctx, user); err != nil {
-		// TODO: Handle the other errors
+		var alreadyExists *repositories.AlreadyExistsError
+		if errors.As(err, &alreadyExists) {
+			return models.User{}, ErrUserAlreadyExists
+		}
 		return models.User{}, ErrInternal
 	}
 
 	return user, nil
 }
 
-func (svc *UserService) createSession(ctx context.Context, user models.User) (models.Session, error) {
+func (svc *UserService) createTokenPair(session models.Session) (TokenPair, error) {
+	expiresAt := time.Now().Add(svc.accessTokenDuration)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"exp":  expiresAt,
+		"user": session.User,
+	})
+	tokenString, err := token.SignedString(svc.tokenSecret)
+	if err != nil {
+		return TokenPair{}, ErrInternal
+	}
+
+	return TokenPair{
+		Access:           tokenString,
+		AccessExpiresAt:  expiresAt,
+		Refresh:          session.Token,
+		RefreshExpiresAt: session.ExpiresAt,
+	}, nil
+}
+
+func (svc *UserService) generateSessionTokens(ctx context.Context, user models.User) (TokenPair, error) {
 	session := models.Session{
 		Id:          uuid.New(),
 		User:        user.Id,
@@ -113,36 +156,23 @@ func (svc *UserService) createSession(ctx context.Context, user models.User) (mo
 
 	if err := svc.sessionStorage.Add(ctx, session); err != nil {
 		// TODO: Handle the other errors
-		return models.Session{}, ErrInternal
+		return TokenPair{}, ErrInternal
 	}
 
-	return session, nil
-}
-
-func NewUserService(
-	logger *slog.Logger,
-	userStorage repositories.UserRepository,
-	sessionStorage repositories.SessionRepository,
-	sessionDuration time.Duration,
-	accessTokenDuration time.Duration,
-	tokenSecret []byte,
-) *UserService {
-	return &UserService{
-		logger:              logger,
-		userStorage:         userStorage,
-		sessionStorage:      sessionStorage,
-		sessionDuration:     sessionDuration,
-		accessTokenDuration: accessTokenDuration,
-		tokenSecret:         tokenSecret,
+	expiresAt := time.Now().Add(svc.accessTokenDuration)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"exp": expiresAt,
+		"sub": session.User.String(),
+	})
+	tokenString, err := token.SignedString(svc.tokenSecret)
+	if err != nil {
+		return TokenPair{}, ErrInternal
 	}
-}
 
-func randomString(n int) string {
-	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-
-	s := make([]rune, n)
-	for i := range s {
-		s[i] = letters[rand.Intn(len(letters))]
-	}
-	return string(s)
+	return TokenPair{
+		Access:           tokenString,
+		AccessExpiresAt:  expiresAt,
+		Refresh:          session.Token,
+		RefreshExpiresAt: session.ExpiresAt,
+	}, nil
 }

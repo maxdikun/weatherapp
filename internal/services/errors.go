@@ -6,7 +6,9 @@ import (
 )
 
 var (
-	ErrInternal = errors.New("internal service error")
+	ErrInvalidCredentials = errors.New("provided credentials are invalid")
+	ErrUserAlreadyExists  = errors.New("user already exists")
+	ErrInternal           = errors.New("internal service error")
 )
 
 type ValidationError struct {
