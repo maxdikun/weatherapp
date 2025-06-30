@@ -8,6 +8,7 @@ import (
 var (
 	ErrInvalidCredentials = errors.New("provided credentials are invalid")
 	ErrUserAlreadyExists  = errors.New("user already exists")
+	ErrInvalidToken       = errors.New("invalid token was provided")
 	ErrInternal           = errors.New("internal service error")
 )
 

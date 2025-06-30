@@ -76,6 +76,28 @@ func (svc *UserService) Login(ctx context.Context, login string, password string
 	return svc.generateSessionTokens(ctx, user)
 }
 
+func (svc *UserService) RefreshSession(ctx context.Context, oldToken string) (TokenPair, error) {
+	session, err := svc.sessionStorage.FindByToken(ctx, oldToken)
+	if err != nil {
+		var notFound *repositories.NotFoundError
+		if errors.As(err, &notFound) {
+			return TokenPair{}, ErrInvalidToken
+		}
+
+		return TokenPair{}, ErrInternal
+	}
+
+	session.Token = randomString(32)
+	session.RefreshedAt = time.Now()
+	session.ExpiresAt = session.RefreshedAt.Add(svc.sessionDuration)
+
+	if err := svc.sessionStorage.Update(ctx, session); err != nil {
+		return TokenPair{}, ErrInternal
+	}
+
+	panic("unimplemented")
+}
+
 func (svc *UserService) findUser(ctx context.Context, login string) (models.User, error) {
 	user, err := svc.userStorage.FindByLogin(ctx, login)
 	if err != nil {
